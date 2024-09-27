@@ -40,7 +40,7 @@ class Mario:
         # 최적의 행동을 이용하기
         else:
             state = state[0].__array__() if isinstance(state, tuple) else state.__array__().copy()
-            state = torch.tensor(state, device=self.device).unsqueeze(0)
+            state = torch.tensor(state, device=self.device, dtype=float).unsqueeze(0)
             action_values = self.net(state, model="online")
             action_idx = torch.argmax(action_values, axis=1).item()
 

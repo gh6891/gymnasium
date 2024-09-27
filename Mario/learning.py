@@ -44,9 +44,7 @@ def main():
         # 게임을 실행시켜봅시다!
         while True:
             # 현재 상태에서 에이전트 실행하기
-            print(111)
             action = mario.act(state)
-            print(222)
             # 에이전트가 액션 수행하기
             next_state, reward, done, trunc, info = env.step(action)
             # 기억하기
