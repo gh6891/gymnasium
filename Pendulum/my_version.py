@@ -65,10 +65,10 @@ class PendulumAgent():
         self.n_actions = n_actions
 
         # 하이퍼파라미터
-        self.BATCH_SIZE = 128
-        self.GAMMA = 0.99
-        self.TAU = 0.005
-        self.LR = 1e-4
+        self.BATCH_SIZE = 200 #128
+        self.GAMMA = 0.98 #0.99
+        self.TAU = 0.01 #0.005
+        self.LR = 0.01 #1e-4
 
         # 네트워크 및 메모리 초기화
         self.policy_net = DQN(n_observations, n_actions).to(device)
@@ -78,9 +78,9 @@ class PendulumAgent():
         self.memory = ReplayMemory(100000)
 
         self.steps_done = 0
-        self.EPS_END = 0.05
-        self.EPS_START = 0.9
-        self.EPS_DECAY = 10000
+        self.EPS_END = 0.05 #0.05
+        self.EPS_START = 1.0 #0.9
+        self.EPS_DECAY = 10000 
 
         # 학습 기록
         self.episode_durations = []
@@ -91,7 +91,8 @@ class PendulumAgent():
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
         self.steps_done += 1
-
+        # if eps_threshold < self.EPS_END + self.EPS_END / 2:
+        #     print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
                 return self.policy_net(state)
@@ -127,10 +128,17 @@ class PendulumAgent():
                 self.target_net.load_state_dict(target_net_state_dict)
                 if done:
                     self.episode_rewards.append(self.cumulative_reward)
-                    print("episode : ", i_episode, "reward : ", self.cumulative_reward, "mean : ")
+                    if len(self.episode_rewards) >= 100:
+                        means = sum(self.episode_rewards[-100:]) / 100  # 최근 100개의 보상 평균
+                    else:
+                        means = sum(self.episode_rewards) / len(self.episode_rewards)  # 현재까지의 평균
+
+                    print("episode : ", i_episode, "reward : ", self.cumulative_reward, "mean : ", means)
                     self.cumulative_reward = 0
                     self.episode_durations.append(t + 1)
                     break
+        torch.save(self.policy_net.state_dict(), 'final_pendulum_policy_net.pth')
+        print('Complete')
 
     
     def plot_durations(self, show_result=False):
@@ -181,7 +189,7 @@ class PendulumAgent():
         # Huber 손실 계산
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
+        print(loss)
 
         # 모델 최적화
         self.optimizer.zero_grad()
@@ -232,4 +240,4 @@ if __name__ == "__main__":
     n_observations = env.observation_space.shape[0]
 
     agent = PendulumAgent(env, n_observations, n_actions)
-    agent.learning(num_episodes=500)
+    agent.learning(num_episodes=1000)
