@@ -90,7 +90,7 @@ class DQNAgent:
             with torch.no_grad():
                 action = float(torch.argmax(self.Q(state)).numpy())
                 # action = float(action.numpy())
-                real_action = (action - 4) / 4
+                real_action = (action - 4) / 2
                 maxQ_action_count = 1
         else:
             action = np.random.choice([n for n in range(9)])

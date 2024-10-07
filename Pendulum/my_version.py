@@ -98,11 +98,12 @@ class PendulumAgent():
         #     # print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
-                action_tensor = self.policy_net(state)
-                action = np.tanh(action_tensor.cpu().numpy()) * 2
-                return action, eps_threshold
+                action = float(torch.argmax(self.policy_net(state)).cpu().numpy())
+                real_action = (action - 4) / 2
         else:
-            return torch.tensor([self.env.action_space.sample()], device=device, dtype=torch.float32), eps_threshold
+            action = np.random.choice([n for n in range(9)])
+            real_action = (action - 4) / 2
+        return real_action, eps_threshold
         
     def learning(self, num_episodes):
         for i_episode in range(num_episodes):
@@ -110,12 +111,14 @@ class PendulumAgent():
             state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
             for t in count():
                 action, eps = self.select_action(state)
-                observation, reward, terminated, truncated, _ = self.env.step([action.item()])
+                print(action)
+                observation, reward, terminated, truncated, _ = self.env.step([action])
                 #끝남 > 0 안끝남 > 1
                 done = terminated or truncated
                 done = 0.0 if done else 1.0
                 reward = torch.tensor([reward], device=device)
                 done = torch.tensor([done], device=device)
+                action = torch.tensor([action], device=device)
                 self.cumulative_reward += reward.item()
 
                 # if terminated:
@@ -184,10 +187,11 @@ class PendulumAgent():
             return
         transitions = self.memory.sample(self.BATCH_SIZE)
         batch = Transition(*zip(*transitions))
-
+        print(batch.action.shape)
         next_state_batch = torch.cat(batch.next_state) # torch.Size([200, 3])
         state_batch = torch.cat(batch.state) # torch.Size([200, 3])
-        # action_batch = torch.cat(batch.action)
+        action_batch = torch.cat(batch.action)
+        print(action_batch)
         reward_batch = torch.cat(batch.reward)
         done_batch = torch.cat(batch.done)
 
@@ -222,7 +226,7 @@ def learning():
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(device)
 
-    n_actions = env.action_space.shape[0]
+    n_actions = 9
     n_observations = env.observation_space.shape[0]
     agent = PendulumAgent(env, n_observations, n_actions)
     agent.learning(num_episodes=5000)
@@ -231,7 +235,7 @@ def control():
     env = gym.make('Pendulum-v1', g=9.81, render_mode = 'rgb_array')
     # env = gym.wrappers.TimeLimit(env, max_episode_steps=20000)
     env = RecordVideo(env, 'pendulum_video', episode_trigger=lambda episode_number: True)
-    n_actions = env.action_space.shape[0]
+    n_actions = 9
     n_observations = env.observation_space.shape[0]
 
     model = DQN(n_observations, n_actions).to(device)
