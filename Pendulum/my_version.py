@@ -98,27 +98,27 @@ class PendulumAgent():
         #     # print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
-                action = float(torch.argmax(self.policy_net(state)).cpu().numpy())
+                action = np.array([torch.argmax(self.policy_net(state)).item()])
                 real_action = (action - 4) / 2
         else:
-            action = np.random.choice([n for n in range(9)])
+            action = np.array([np.random.choice([n for n in range(9)])])
             real_action = (action - 4) / 2
-        return real_action, eps_threshold
+        return action, real_action, eps_threshold
         
     def learning(self, num_episodes):
         for i_episode in range(num_episodes):
             state, info = self.env.reset()
             state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
             for t in count():
-                action, eps = self.select_action(state)
-                print(action)
-                observation, reward, terminated, truncated, _ = self.env.step([action])
+                action, real_action, eps = self.select_action(state)
+                observation, reward, terminated, truncated, _ = self.env.step(real_action)
+                
                 #끝남 > 0 안끝남 > 1
                 done = terminated or truncated
                 done = 0.0 if done else 1.0
                 reward = torch.tensor([reward], device=device)
                 done = torch.tensor([done], device=device)
-                action = torch.tensor([action], device=device)
+                action = torch.tensor([action], device=device, dtype=torch.long)
                 self.cumulative_reward += reward.item()
 
                 # if terminated:
@@ -187,21 +187,19 @@ class PendulumAgent():
             return
         transitions = self.memory.sample(self.BATCH_SIZE)
         batch = Transition(*zip(*transitions))
-        print(batch.action.shape)
         next_state_batch = torch.cat(batch.next_state) # torch.Size([200, 3])
         state_batch = torch.cat(batch.state) # torch.Size([200, 3])
-        action_batch = torch.cat(batch.action)
-        print(action_batch)
+        action_batch = torch.cat(batch.action) # torch.Size([200, 1])
         reward_batch = torch.cat(batch.reward)
         done_batch = torch.cat(batch.done)
 
         reward_batch = reward_batch.unsqueeze(1) # torch.Size([200, 1])
         done_batch = done_batch.unsqueeze(1) # torch.Size([200, 1])
-        state_action_values = self.policy_net(state_batch) #torch.Size([200, 1])
-
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch) #torch.Size([200, 1])
         # next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
         with torch.no_grad():
-            next_state_values = self.target_net(next_state_batch) #torch.Size([200, 1])
+            next_state_values = self.target_net(next_state_batch).max(1)[0].unsqueeze(1)
+             #torch.Size([200, 1])
             # next_state_values[non_fiklnal_mask] = self.target_net(non_final_next_states).max(1).values
         # 기대 Q 값 계산
         expected_state_action_values = next_state_values * self.GAMMA * done_batch + reward_batch # torch.Size([200, 1])
@@ -229,7 +227,7 @@ def learning():
     n_actions = 9
     n_observations = env.observation_space.shape[0]
     agent = PendulumAgent(env, n_observations, n_actions)
-    agent.learning(num_episodes=5000)
+    agent.learning(num_episodes=20000)
 
 def control():
     env = gym.make('Pendulum-v1', g=9.81, render_mode = 'rgb_array')
@@ -251,10 +249,11 @@ def control():
         env.render()
         # 모델을 사용하여 행동 선택
         with torch.no_grad():
-            q_values = model(state)
-            action = q_values  # 가장 높은 Q 값을 가진 행동 선택
+            action = np.array([torch.argmax(model(state)).item()])
+            real_action = (action - 4) / 2
+            print(real_action)
         # 환경에서 행동 수행
-        next_state, reward, terminated, truncated, _ = env.step([action.item()])
+        next_state, reward, terminated, truncated, _ = env.step(real_action)
         done = terminated or truncated
 
         # 상태 업데이트
@@ -262,5 +261,14 @@ def control():
     env.close()
 
 if __name__ == "__main__":
-    learning()
+    # learning()
     control()
+    #-----------------------------------------
+    # env = gym.make('Pendulum-v1', g=9.81)
+    # state, info = env.reset()
+    # state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    # print("state: ",state)
+    # action = np.array([np.random.choice([n for n in range(9)])])
+    # real_action = (action - 4) / 2
+    # observation, reward, terminated, truncated, _ = env.step(real_action)
+    # print("next_state: ",observation)
