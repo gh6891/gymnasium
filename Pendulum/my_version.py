@@ -25,6 +25,9 @@ if is_ipython:
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(device)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
 
@@ -80,7 +83,7 @@ class PendulumAgent():
         self.steps_done = 0
         self.EPS_END = 0.05 #0.05
         self.EPS_START = 1.0 #0.9
-        self.EPS_DECAY = 10000 
+        self.EPS_DECAY = 100
 
         # 학습 기록
         self.episode_durations = []
@@ -91,35 +94,37 @@ class PendulumAgent():
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
         self.steps_done += 1
-        # if eps_threshold < self.EPS_END + self.EPS_END / 2:
-        #     print(eps_threshold)
+        # if eps_threshold >= self.EPS_END + self.EPS_END / 2:
+        #     # print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
-                return self.policy_net(state)
+                return self.policy_net(state), eps_threshold
         else:
-            return torch.tensor([self.env.action_space.sample()], device=device, dtype=torch.float32)
+            return torch.tensor([self.env.action_space.sample()], device=device, dtype=torch.float32), eps_threshold
         
     def learning(self, num_episodes):
         for i_episode in range(num_episodes):
             state, info = self.env.reset()
             state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
             for t in count():
-                action = self.select_action(state)
+                action, eps = self.select_action(state)
                 observation, reward, terminated, truncated, _ = self.env.step([action.item()])
-                done = terminated or truncated
-                done = 0.0 if done else 1.0
+                #끝남 > 0 안끝남 > 1
+                done = float(terminated or truncated)
+                done = 0 if done else 1
                 reward = torch.tensor([reward], device=device)
-                done = torch.tensor([done], device =device)
+                done = torch.tensor([done], device=device)
                 self.cumulative_reward += reward.item()
 
-                if terminated:
-                    next_state = None
-                else:
-                    next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+                # if terminated:
+                #     next_state = None
+                # else:
+                next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
                 self.memory.push(state, action, next_state, reward, done)
                 state = next_state
-                self.optimize_model()
+
+                loss = self.optimize_model()
 
                 # Soft update for target network
                 target_net_state_dict = self.target_net.state_dict()
@@ -128,14 +133,15 @@ class PendulumAgent():
                 for key in policy_net_state_dict:
                     target_net_state_dict[key] = policy_net_state_dict[key] * self.TAU + target_net_state_dict[key] * (1 - self.TAU)
                 self.target_net.load_state_dict(target_net_state_dict)
+
                 if done:
                     self.episode_rewards.append(self.cumulative_reward)
                     if len(self.episode_rewards) >= 100:
                         means = sum(self.episode_rewards[-100:]) / 100  # 최근 100개의 보상 평균
                     else:
                         means = sum(self.episode_rewards) / len(self.episode_rewards)  # 현재까지의 평균
-
-                    print("episode : ", i_episode, "reward : ", self.cumulative_reward, "mean : ", means)
+                    if i_episode % 10 == 0:
+                        print("episode : ", i_episode, "reward : ", self.cumulative_reward, "mean : ", means, "loss : ", loss, "eps : ", eps)
                     self.cumulative_reward = 0
                     self.episode_durations.append(t + 1)
                     break
@@ -176,49 +182,65 @@ class PendulumAgent():
         transitions = self.memory.sample(self.BATCH_SIZE)
         batch = Transition(*zip(*transitions))
 
-        # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
-        # non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
-        next_state_batch = torch.cat(batch.next_state)
-        state_batch = torch.cat(batch.state)
+        next_state_batch = torch.cat(batch.next_state) # torch.Size([200, 3])
+        state_batch = torch.cat(batch.state) # torch.Size([200, 3])
         # action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
         done_batch = torch.cat(batch.done)
-        state_action_values = self.policy_net(state_batch)
-        # print(state_action_values.shape)
+
+        reward_batch = reward_batch.unsqueeze(1) # torch.Size([200, 1])
+        done_batch = done_batch.unsqueeze(1) # torch.Size([200, 1])
+        state_action_values = self.policy_net(state_batch) #torch.Size([200, 1])
+
         # next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
         with torch.no_grad():
-            next_state_values = self.target_net(next_state_batch)
+            next_state_values = self.target_net(next_state_batch) #torch.Size([200, 1])
             # next_state_values[non_fiklnal_mask] = self.target_net(non_final_next_states).max(1).values
         # 기대 Q 값 계산
-        
-        expected_state_action_values = next_state_values * self.GAMMA * done_batch + reward_batch
+        expected_state_action_values = next_state_values * self.GAMMA * done_batch + reward_batch # torch.Size([200, 1])
         # Huber 손실 계산
         criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-        #print(loss.item())
+        loss = criterion(state_action_values, expected_state_action_values)
+        # print(loss.item())
+        loss_output = loss.item()
         # 모델 최적화
         self.optimizer.zero_grad()
         loss.backward()
         # 변화도 클리핑 바꿔치기
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
+        return loss_output
+
+def learning():
+    env = gym.make('Pendulum-v1', g=9.81)
+    # env = gym.wrappers.TimeLimit(env, max_episode_steps=20000)
+
+    # # GPU를 사용할 경우
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(device)
+
+    n_actions = env.action_space.shape[0]
+    n_observations = env.observation_space.shape[0]
+
+    agent = PendulumAgent(env, n_observations, n_actions)
+    agent.learning(num_episodes=500)
 
 def control():
     env = gym.make('Pendulum-v1', g=9.81, render_mode = 'rgb_array')
-    env = gym.wrappers.TimeLimit(env, max_episode_steps=1000)
-    # env = RecordVideo(env, 'pendulum_video', episode_trigger=lambda episode_number: True)
+    # env = gym.wrappers.TimeLimit(env, max_episode_steps=20000)
+    env = RecordVideo(env, 'pendulum_video', episode_trigger=lambda episode_number: True)
     n_actions = env.action_space.shape[0]
     n_observations = env.observation_space.shape[0]
 
     model = DQN(n_observations, n_actions).to(device)
-    model.load_state_dict(torch.load('final_pendulum_policy_net.pth'))
+    model.load_state_dict(torch.load('final_pendulum_policy_net.pth', weights_only=True))
     model.eval()
 
     done = False
     env.reset()
     state, info = env.reset()
     state = torch.tensor(state, dtype = torch.float32, device = device).unsqueeze(0)
-    print(state)
+    # print(state)
     while not done:
         env.render()
         # 모델을 사용하여 행동 선택
@@ -234,15 +256,5 @@ def control():
     env.close()
 
 if __name__ == "__main__":
-    env = gym.make('Pendulum-v1', g=9.81)
-    env = gym.wrappers.TimeLimit(env, max_episode_steps=1000)
-
-    # GPU를 사용할 경우
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
-
-    n_actions = env.action_space.shape[0]
-    n_observations = env.observation_space.shape[0]
-
-    agent = PendulumAgent(env, n_observations, n_actions)
-    agent.learning(num_episodes=1000)
+    learning()
+    control()
