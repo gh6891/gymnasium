@@ -107,6 +107,7 @@ class PendulumAgent():
                 action = self.select_action(state)
                 observation, reward, terminated, truncated, _ = self.env.step([action.item()])
                 done = terminated or truncated
+                done = 0.0 if done else 1.0
                 reward = torch.tensor([reward], device=device)
                 done = torch.tensor([done], device =device)
                 self.cumulative_reward += reward.item()
@@ -177,25 +178,24 @@ class PendulumAgent():
 
         # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
         # non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
-
+        next_state_batch = torch.cat(batch.next_state)
         state_batch = torch.cat(batch.state)
         # action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
         done_batch = torch.cat(batch.done)
-
         state_action_values = self.policy_net(state_batch)
-
+        # print(state_action_values.shape)
         # next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
         with torch.no_grad():
-            next_state_values = self.target_net(state_batch)
-            # next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+            next_state_values = self.target_net(next_state_batch)
+            # next_state_values[non_fiklnal_mask] = self.target_net(non_final_next_states).max(1).values
         # 기대 Q 값 계산
-        expected_state_action_values = (next_state_values * self.GAMMA) * done_batch + reward_batch
+        
+        expected_state_action_values = next_state_values * self.GAMMA * done_batch + reward_batch
         # Huber 손실 계산
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-        print(loss.item())
-
+        #print(loss.item())
         # 모델 최적화
         self.optimizer.zero_grad()
         loss.backward()
