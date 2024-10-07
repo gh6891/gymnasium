@@ -115,6 +115,7 @@ class DQNAgent:
         #### Q train ####
         Q_a = self.Q(s_batch).gather(1, a_batch)
         q_loss = F.smooth_l1_loss(Q_a, td_target)
+        output = q_loss.item()
         self.Q.optimizer.zero_grad()
         q_loss.mean().backward()
         self.Q.optimizer.step()
@@ -123,6 +124,9 @@ class DQNAgent:
         #### Q soft-update ####
         for param_target, param in zip(self.Q_target.parameters(), self.Q.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - self.tau) + param.data * self.tau)
+            
+        return output
+
 
 
 if __name__ == '__main__':
@@ -160,21 +164,23 @@ if __name__ == '__main__':
             maxQ_action_count += count
 
             state = state_prime
-
+            output_loss = 0
             if agent.memory.size() > 1000:  # 1000개의 [s,a,r,s']이 쌓이면 학습 시작
                 if print_once: print("학습시작!")
                 print_once = False
-                agent.train_agent()
+                output_loss = agent.train_agent()
 
         if EP % 10 == 0:
             torch.save(agent.Q.state_dict(), model_save_dir + "/DQN_Q_EP"+str(EP)+".pt")
+            # print(output_loss)
+            
 
         # if score > max(score_list):  # 스코어 리스트의 최댓값을 갱신하면 모델 저장
         #     # torch.save(agent.Q.state_dict(), "save_model/1225/DQN_Q_EP" + str(EP) + ".pt")
         #     torch.save(agent.Q.state_dict(), "save_model/DQN_Q_network.pt")
         #     print("...모델 저장...")
 
-        print("EP:{}, Avg_Score:{:.1f}, MaxQ_Action_Count:{}, Epsilon:{:.5f}".format(EP, score, maxQ_action_count, agent.epsilon))
+        print("EP:{}, action:{},Avg_Score:{:.1f}, MaxQ_Action_Count:{}, Epsilon:{:.5f}, loss:{:.5f}".format(EP, real_action, score, maxQ_action_count, agent.epsilon, output_loss))
         score_list.append(score)
 
         if agent.epsilon > agent.epsilon_min:

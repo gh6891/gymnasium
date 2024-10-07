@@ -6,7 +6,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
-
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -71,7 +71,7 @@ class PendulumAgent():
         self.BATCH_SIZE = 200 #128
         self.GAMMA = 0.98 #0.99
         self.TAU = 0.01 #0.005
-        self.LR = 0.01 #1e-4
+        self.LR = 0.0001 #1e-4
 
         # 네트워크 및 메모리 초기화
         self.policy_net = DQN(n_observations, n_actions).to(device)
@@ -81,9 +81,9 @@ class PendulumAgent():
         self.memory = ReplayMemory(100000)
 
         self.steps_done = 0
-        self.EPS_END = 0.05 #0.05
+        self.EPS_END = 0.001 #0.05
         self.EPS_START = 1.0 #0.9
-        self.EPS_DECAY = 100
+        self.EPS_DECAY = 5000
 
         # 학습 기록
         self.episode_durations = []
@@ -98,7 +98,9 @@ class PendulumAgent():
         #     # print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
-                return self.policy_net(state), eps_threshold
+                action_tensor = self.policy_net(state)
+                action = np.tanh(action_tensor.cpu().numpy()) * 2
+                return action, eps_threshold
         else:
             return torch.tensor([self.env.action_space.sample()], device=device, dtype=torch.float32), eps_threshold
         
@@ -110,8 +112,8 @@ class PendulumAgent():
                 action, eps = self.select_action(state)
                 observation, reward, terminated, truncated, _ = self.env.step([action.item()])
                 #끝남 > 0 안끝남 > 1
-                done = float(terminated or truncated)
-                done = 0 if done else 1
+                done = terminated or truncated
+                done = 0.0 if done else 1.0
                 reward = torch.tensor([reward], device=device)
                 done = torch.tensor([done], device=device)
                 self.cumulative_reward += reward.item()
@@ -123,8 +125,9 @@ class PendulumAgent():
 
                 self.memory.push(state, action, next_state, reward, done)
                 state = next_state
-
-                loss = self.optimize_model()
+                loss = None
+                if self.memory.__len__() > 1000:
+                    loss = self.optimize_model()
 
                 # Soft update for target network
                 target_net_state_dict = self.target_net.state_dict()
@@ -141,7 +144,7 @@ class PendulumAgent():
                     else:
                         means = sum(self.episode_rewards) / len(self.episode_rewards)  # 현재까지의 평균
                     if i_episode % 10 == 0:
-                        print("episode : ", i_episode, "reward : ", self.cumulative_reward, "mean : ", means, "loss : ", loss, "eps : ", eps)
+                        print("episode : ", i_episode,"action : ", action, "reward : ", self.cumulative_reward, "mean : ", means, "loss : ", loss, "eps : ", eps)
                     self.cumulative_reward = 0
                     self.episode_durations.append(t + 1)
                     break
@@ -221,9 +224,8 @@ def learning():
 
     n_actions = env.action_space.shape[0]
     n_observations = env.observation_space.shape[0]
-
     agent = PendulumAgent(env, n_observations, n_actions)
-    agent.learning(num_episodes=500)
+    agent.learning(num_episodes=5000)
 
 def control():
     env = gym.make('Pendulum-v1', g=9.81, render_mode = 'rgb_array')
