@@ -68,7 +68,7 @@ class PendulumAgent():
         self.n_actions = n_actions
 
         # 하이퍼파라미터
-        self.BATCH_SIZE = 200 #128
+        self.BATCH_SIZE = 3 #128
         self.GAMMA = 0.98 #0.99
         self.TAU = 0.01 #0.005
         self.LR = 0.0001 #1e-4
@@ -90,20 +90,25 @@ class PendulumAgent():
         self.episode_rewards = []
         self.cumulative_reward = 0
 
+        self.actionvaluelist = [-2, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
+
     def select_action(self, state):
-        sample = random.random()
-        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        sample = np.random.uniform(0.0, 1.0)
+        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * np.exp(-1. * self.steps_done / self.EPS_DECAY)
         self.steps_done += 1
         # if eps_threshold >= self.EPS_END + self.EPS_END / 2:
         #     # print(eps_threshold)
         if sample > eps_threshold:
             with torch.no_grad():
-                action = np.array([torch.argmax(self.policy_net(state)).item()])
-                real_action = (action - 4) / 2
+                action_idx = np.array([torch.argmax(self.policy_net(state)).item()])
+                # action_value = self.actionvaluelist[action_idx](action - 4) / 2
+                action_value = (action_idx - 4) / 2
         else:
-            action = np.array([np.random.choice([n for n in range(9)])])
-            real_action = (action - 4) / 2
-        return action, real_action, eps_threshold
+            action_idx = np.array([np.random.choice([n for n in range(9)])])
+            # action_idx = np.random.randint(0, 9)
+            # action_value = self.actionvaluelist[action_idx]
+            action_value = (action_idx - 4) / 2
+        return action_idx, action_value, eps_threshold
         
     def learning(self, num_episodes):
         for i_episode in range(num_episodes):
@@ -112,7 +117,7 @@ class PendulumAgent():
             for t in count():
                 action, real_action, eps = self.select_action(state)
                 observation, reward, terminated, truncated, _ = self.env.step(real_action)
-                
+                # print("test 2 :", state)
                 #끝남 > 0 안끝남 > 1
                 done = terminated or truncated
                 done = 0.0 if done else 1.0
@@ -125,10 +130,11 @@ class PendulumAgent():
                 #     next_state = None
                 # else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
-
+                # print("test 1 :", next_state)
                 self.memory.push(state, action, next_state, reward, done)
                 state = next_state
                 loss = None
+                #--------------train--------------------
                 if self.memory.__len__() > 1000:
                     loss = self.optimize_model()
 
@@ -147,7 +153,10 @@ class PendulumAgent():
                     else:
                         means = sum(self.episode_rewards) / len(self.episode_rewards)  # 현재까지의 평균
                     if i_episode % 10 == 0:
-                        print("episode : ", i_episode,"action : ", action, "reward : ", self.cumulative_reward, "mean : ", means, "loss : ", loss, "eps : ", eps)
+                        print(f"episode : {i_episode} action : {action.item()} reward : {self.cumulative_reward:.4f} mean : {means:.4f} loss : {f'{loss:.4f}' if loss is not None else 'None'} eps : {eps:.4f}")
+
+
+
                     self.cumulative_reward = 0
                     self.episode_durations.append(t + 1)
                     break
@@ -190,11 +199,12 @@ class PendulumAgent():
         next_state_batch = torch.cat(batch.next_state) # torch.Size([200, 3])
         state_batch = torch.cat(batch.state) # torch.Size([200, 3])
         action_batch = torch.cat(batch.action) # torch.Size([200, 1])
-        reward_batch = torch.cat(batch.reward)
-        done_batch = torch.cat(batch.done)
+        reward_batch = torch.cat(batch.reward)# torch.Size([200, 1])
+        done_batch = torch.cat(batch.done)# torch.Size([200, 1])
 
         reward_batch = reward_batch.unsqueeze(1) # torch.Size([200, 1])
         done_batch = done_batch.unsqueeze(1) # torch.Size([200, 1])
+
         state_action_values = self.policy_net(state_batch).gather(1, action_batch) #torch.Size([200, 1])
         # next_state_values = torch.zeros(self.BATCH_SIZE, device=device)
         with torch.no_grad():
@@ -202,11 +212,14 @@ class PendulumAgent():
              #torch.Size([200, 1])
             # next_state_values[non_fiklnal_mask] = self.target_net(non_final_next_states).max(1).values
         # 기대 Q 값 계산
+        
         expected_state_action_values = next_state_values * self.GAMMA * done_batch + reward_batch # torch.Size([200, 1])
+        # print("expected_state_action : ",expected_state_action_values)
         # Huber 손실 계산
         criterion = nn.SmoothL1Loss()
         loss = criterion(state_action_values, expected_state_action_values)
-        # print(loss.item())
+
+        # print(loss)
         loss_output = loss.item()
         # 모델 최적화
         self.optimizer.zero_grad()
@@ -225,7 +238,7 @@ def learning():
     # print(device)
 
     n_actions = 9
-    n_observations = env.observation_space.shape[0]
+    n_observations = env.observation_space.shape[0] #3
     agent = PendulumAgent(env, n_observations, n_actions)
     agent.learning(num_episodes=20000)
 
@@ -261,8 +274,8 @@ def control():
     env.close()
 
 if __name__ == "__main__":
-    # learning()
-    control()
+    learning()
+    # control()
     #-----------------------------------------
     # env = gym.make('Pendulum-v1', g=9.81)
     # state, info = env.reset()

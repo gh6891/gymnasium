@@ -109,12 +109,11 @@ class DQNAgent:
         mini_batch = self.memory.sample(self.batch_size)
         s_batch, a_batch, r_batch, s_prime_batch, done_batch = mini_batch
         a_batch = a_batch.type(torch.int64)
-
         td_target = self.calc_target(mini_batch)
-
         #### Q train ####
         Q_a = self.Q(s_batch).gather(1, a_batch)
         q_loss = F.smooth_l1_loss(Q_a, td_target)
+        print(q_loss)
         output = q_loss.item()
         self.Q.optimizer.zero_grad()
         q_loss.mean().backward()
@@ -150,6 +149,7 @@ if __name__ == '__main__':
 
     for EP in range(EPISODE):
         state, info = env.reset()
+        
         score, done = 0.0, False
         maxQ_action_count = 0
 
