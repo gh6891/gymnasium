@@ -216,7 +216,7 @@ def control():
 if __name__ == "__main__":
     env = gym.make('Pendulum-v1', g=9.81)
     agent = PendulumAgent(env)
-    agent.learning(1500)
+    agent.learning(2500)
 
     control()
 
